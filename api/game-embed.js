@@ -1,3 +1,5 @@
+import { Buffer } from "node:buffer";
+
 function escapeHtml(value) {
     return String(value ?? "")
         .replace(/&/g, "&amp;")
@@ -44,6 +46,20 @@ function formatDate(value) {
     }).format(new Date(timestamp));
 }
 
+function truncateUtf8(value, maxBytes) {
+    let result = "";
+    let bytes = 0;
+    for (const character of String(value ?? "")) {
+        const characterBytes = Buffer.byteLength(character, "utf8");
+        if (bytes + characterBytes > maxBytes) {
+            break;
+        }
+        result += character;
+        bytes += characterBytes;
+    }
+    return result;
+}
+
 export default async function handler(req, res) {
     if (req.method !== "GET" && req.method !== "HEAD") {
         res.setHeader("Allow", "GET, HEAD");
@@ -63,13 +79,23 @@ export default async function handler(req, res) {
         return;
     }
 
+    const userAgent = req.headers["user-agent"] ?? "";
+    const isDiscordCrawler = /Discordbot/i.test(userAgent);
     let response;
+    let statsResponse;
     try {
-        response = await fetch(`https://playvortex.io/api/games/${gameId}`, {
-            signal: AbortSignal.timeout(5000),
-        });
+        [response, statsResponse] = await Promise.all([
+            fetch(`https://playvortex.io/api/games/${gameId}`, {
+                signal: AbortSignal.timeout(5000),
+            }),
+            isDiscordCrawler
+                ? fetch("https://playvortex.io/api/game-stats", {
+                    signal: AbortSignal.timeout(5000),
+                })
+                : Promise.resolve(null),
+        ]);
     } catch {
-        sendHtml(res, 502, errorPage("Game unavailable", "Unable to check this game right now."));
+        sendHtml(res, 502, errorPage("Game unavailable", "Unable to load the game preview data right now."));
         return;
     }
 
@@ -96,8 +122,7 @@ export default async function handler(req, res) {
     }
 
     const playUrl = `https://playvortex.io/games/${gameId}/play`;
-    const userAgent = req.headers["user-agent"] ?? "";
-    if (!/Discordbot/i.test(userAgent)) {
+    if (!isDiscordCrawler) {
         res.statusCode = 302;
         res.setHeader("Location", playUrl);
         res.setHeader("Cache-Control", "no-store");
@@ -105,16 +130,7 @@ export default async function handler(req, res) {
         return;
     }
 
-    let statsResponse;
-    try {
-        statsResponse = await fetch("https://playvortex.io/api/game-stats", {
-            signal: AbortSignal.timeout(5000),
-        });
-    } catch {
-        sendHtml(res, 502, errorPage("Game unavailable", "Unable to load game statistics right now."));
-        return;
-    }
-    if (!statsResponse.ok) {
+    if (!statsResponse?.ok) {
         sendHtml(res, 502, errorPage("Game unavailable", "Unable to load game statistics right now."));
         return;
     }
@@ -133,24 +149,80 @@ export default async function handler(req, res) {
         : "Unavailable";
     const name = game.name || `Game ${gameId}`;
     const author = game.creator_name || "Unknown";
-    const title = String(name);
+    const title = truncateUtf8(name, 180);
+    const componentAuthor = truncateUtf8(author, 120);
+    const updatedAt = formatDate(game.map_updated_at ?? game.created_at);
+    const gameDescription = truncateUtf8(
+        game.description || `Play ${name} on Vortex.`,
+        1200,
+    );
     const description = [
         `By **${author}**`,
         `${visits} visits`,
-        `Last updated ${formatDate(game.map_updated_at ?? game.created_at)}`,
+        `Last updated ${updatedAt}`,
         game.description || `Play ${name} on Vortex.`,
     ].join("\n");
     const host = req.headers["x-forwarded-host"] || req.headers.host;
     const protocol = req.headers["x-forwarded-proto"] || "https";
     const pageUrl = new URL(`/${gameId}`, `${protocol}://${host}`).href;
     const thumbnailVersion = game.thumbnail_version
-        ? `?v=${encodeURIComponent(game.thumbnail_version)}`
+        ? `?v=${encodeURIComponent(String(game.thumbnail_version).slice(0, 128))}`
         : "";
     const imageUrl = `https://playvortex.io/assets/thumbnails/${gameId}${thumbnailVersion}`;
     const safeTitle = escapeHtml(title);
     const safeDescription = escapeHtml(description);
     const safePageUrl = escapeHtml(pageUrl);
     const safeImageUrl = escapeHtml(imageUrl);
+    const component = {
+        type: 17,
+        accent_color: 0xA955F7,
+        components: [
+            {
+                type: 9,
+                components: [
+                    {
+                        type: 10,
+                        content: `# [${title}](${pageUrl})\nBy **${componentAuthor}**`,
+                    },
+                ],
+                accessory: {
+                    type: 11,
+                    media: { url: imageUrl },
+                },
+            },
+            {
+                type: 10,
+                content: `**${visits} visits** · Last updated ${updatedAt}`,
+            },
+            { type: 14, spacing: 1 },
+            { type: 10, content: gameDescription },
+            {
+                type: 1,
+                components: [
+                    {
+                        type: 2,
+                        style: 5,
+                        url: playUrl,
+                        label: "Play Game",
+                    },
+                ],
+            },
+        ],
+    };
+    let componentDescription = gameDescription;
+    let componentJson = JSON.stringify({ component }).replace(/</g, "\\u003c");
+    while (Buffer.byteLength(componentJson, "utf8") > 3000 && componentDescription) {
+        componentDescription = truncateUtf8(
+            componentDescription,
+            Math.max(0, Buffer.byteLength(componentDescription, "utf8") - 100),
+        );
+        component.components[3].content = componentDescription;
+        componentJson = JSON.stringify({ component }).replace(/</g, "\\u003c");
+    }
+    if (Buffer.byteLength(componentJson, "utf8") > 3000) {
+        sendHtml(res, 500, errorPage("Game unavailable", "The game details are too large to create a Discord preview."));
+        return;
+    }
 
     sendHtml(
         res,
@@ -174,6 +246,7 @@ export default async function handler(req, res) {
     <meta name="twitter:title" content="${safeTitle}">
     <meta name="twitter:description" content="${safeDescription}">
     <meta name="twitter:image" content="${safeImageUrl}">
+    <script id="discord:component-embed" type="application/json">${componentJson}</script>
 </head>
 <body>
     <h1>${safeTitle}</h1>
