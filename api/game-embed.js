@@ -184,13 +184,8 @@ export default async function handler(req, res) {
                 ]
             },
             {
-                type: 9,
-                components: [
-                    {
-                        type: 10,
-                        content: `# [${title}](${pageUrl})\nBy **${componentAuthor}**`,
-                    },
-                ],
+                type: 10,
+                content: `# [${title}](${pageUrl})\nBy **${componentAuthor}**`,
             },
             {
                 type: 10,
