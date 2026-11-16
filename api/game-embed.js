@@ -165,14 +165,16 @@ export default async function handler(req, res) {
     const host = req.headers["x-forwarded-host"] || req.headers.host;
     const protocol = req.headers["x-forwarded-proto"] || "https";
     const pageUrl = new URL(`/${gameId}`, `${protocol}://${host}`).href;
-    const thumbnailVersion = game.thumbnail_version
-        ? `?v=${encodeURIComponent(String(game.thumbnail_version).slice(0, 128))}`
-        : "";
-    const imageUrl = `https://playvortex.io/assets/thumbnails/${gameId}${thumbnailVersion}`;
+    const imageUrl = new URL("/api/game-thumbnail", `${protocol}://${host}`);
+    imageUrl.searchParams.set("gameId", String(gameId));
+    if (game.thumbnail_version) {
+        imageUrl.searchParams.set("version", String(game.thumbnail_version).slice(0, 128));
+    }
+    const thumbnailUrl = imageUrl.href;
     const safeTitle = escapeHtml(title);
     const safeDescription = escapeHtml(description);
     const safePageUrl = escapeHtml(pageUrl);
-    const safeImageUrl = escapeHtml(imageUrl);
+    const safeImageUrl = escapeHtml(thumbnailUrl);
     const component = {
         type: 17,
         accent_color: 0xA955F7,
@@ -180,7 +182,7 @@ export default async function handler(req, res) {
             {
                 type: 12,
                 items: [
-                    { media: { url: imageUrl } }
+                    { media: { url: thumbnailUrl } }
                 ]
             },
             {
