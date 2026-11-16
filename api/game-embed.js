@@ -178,6 +178,12 @@ export default async function handler(req, res) {
         accent_color: 0xA955F7,
         components: [
             {
+                type: 12,
+                items: [
+                    { media: { url: imageUrl } }
+                ]
+            },
+            {
                 type: 9,
                 components: [
                     {
@@ -185,12 +191,6 @@ export default async function handler(req, res) {
                         content: `# [${title}](${pageUrl})\nBy **${componentAuthor}**`,
                     },
                 ],
-                accessory: {
-                    type: 12,
-                    items: [
-                        { media: { url: imageUrl } }
-                    ],
-                },
             },
             {
                 type: 10,
