@@ -185,11 +185,7 @@ export default async function handler(req, res) {
             },
             {
                 type: 10,
-                content: `# [${title}](${pageUrl})\nBy **${componentAuthor}**`,
-            },
-            {
-                type: 10,
-                content: `**${visits} visits** · Last updated ${updatedAt}`,
+                content: `# [${title}](${pageUrl})\nBy **${componentAuthor}**\n\n**${visits} visits** · Last updated ${updatedAt}`,
             },
             { type: 14, spacing: 1 },
             { type: 10, content: gameDescription },
