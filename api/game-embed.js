@@ -187,7 +187,9 @@ export default async function handler(req, res) {
                 ],
                 accessory: {
                     type: 12,
-                    media: { url: imageUrl },
+                    items: [
+                        { media: { url: imageUrl } }
+                    ],
                 },
             },
             {
