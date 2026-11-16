@@ -30,6 +30,20 @@ function errorPage(title, message) {
 </html>`;
 }
 
+function formatDate(value) {
+    const timestamp = typeof value === "number" ? value * 1000 : Date.parse(value);
+    if (!Number.isFinite(timestamp)) {
+        return "Unknown";
+    }
+
+    return new Intl.DateTimeFormat("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+    }).format(new Date(timestamp));
+}
+
 export default async function handler(req, res) {
     if (req.method !== "GET" && req.method !== "HEAD") {
         res.setHeader("Allow", "GET, HEAD");
@@ -91,8 +105,41 @@ export default async function handler(req, res) {
         return;
     }
 
-    const title = `${game.name || `Game ${gameId}`} | Vortex Games`;
-    const description = game.description || `Play ${game.name || `game ${gameId}`} on Vortex.`;
+    let statsResponse;
+    try {
+        statsResponse = await fetch("https://playvortex.io/api/game-stats", {
+            signal: AbortSignal.timeout(5000),
+        });
+    } catch {
+        sendHtml(res, 502, errorPage("Game unavailable", "Unable to load game statistics right now."));
+        return;
+    }
+    if (!statsResponse.ok) {
+        sendHtml(res, 502, errorPage("Game unavailable", "Unable to load game statistics right now."));
+        return;
+    }
+
+    let gameStats;
+    try {
+        gameStats = await statsResponse.json();
+    } catch {
+        sendHtml(res, 502, errorPage("Game unavailable", "The game statistics service returned an invalid response."));
+        return;
+    }
+
+    const stats = gameStats?.[String(gameId)];
+    const visits = Number.isSafeInteger(stats?.visits) && stats.visits >= 0
+        ? new Intl.NumberFormat("en-US").format(stats.visits)
+        : "Unavailable";
+    const name = game.name || `Game ${gameId}`;
+    const author = game.creator_name || "Unknown";
+    const title = String(name);
+    const description = [
+        `By **${author}**`,
+        `${visits} visits`,
+        `Last updated ${formatDate(game.map_updated_at ?? game.created_at)}`,
+        game.description || `Play ${name} on Vortex.`,
+    ].join("\n");
     const host = req.headers["x-forwarded-host"] || req.headers.host;
     const protocol = req.headers["x-forwarded-proto"] || "https";
     const pageUrl = new URL(`/${gameId}`, `${protocol}://${host}`).href;
@@ -113,6 +160,7 @@ export default async function handler(req, res) {
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#a955f7">
     <title>${safeTitle}</title>
     <meta name="description" content="${safeDescription}">
     <meta property="og:type" content="website">
