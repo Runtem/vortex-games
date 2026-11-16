@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/api/games/:gameId",
+      "destination": "https://playvortex.io/api/games/:gameId"
+    },
+    {
+      "source": "/:gameId(\\d+)",
+      "destination": "/api/game-embed?gameId=:gameId"
+    }
+  ]
+}
